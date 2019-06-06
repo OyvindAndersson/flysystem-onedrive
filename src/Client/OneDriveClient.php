@@ -19,16 +19,22 @@ class OneDriveClient
      */
     private $guzzle;
 
-    const BASE_URI = 'https://api.onedrive.com/v1.0/';
+    private $config;
+
+    protected $drive_id = '';
+
+    const BASE_URI = 'https://graph.microsoft.com/v1.0/';
 
     /**
      * @param string $accessToken
      * @param Client $guzzle
      */
-    public function __construct($accessToken, Client $guzzle)
+    public function __construct($accessToken, Client $guzzle, $drive_id = '' )
     {
         $this->accessToken = $accessToken;
         $this->guzzle = $guzzle;
+
+        $this->drive_id = $drive_id;
     }
 
     /**
@@ -236,8 +242,7 @@ class OneDriveClient
      */
     public function listChildren($path)
     {
-        $url = self::BASE_URI.$this->getFolderUrl($path).'children';
-
+        $url = self::BASE_URI.$this->getFolderUrl($path);
         return $this->getResponse('GET', $url);
     }
 
@@ -342,9 +347,9 @@ class OneDriveClient
     private function getParentReferenceFolder($folder)
     {
         if ($folder == '') {
-            $parentReference = '/drive/root/';
+            $parentReference = '/drives/'.$this->drive_id.'/root/';
         } else {
-            $parentReference = '/drive/root:/'.$folder;
+            $parentReference = '/drives/'.$this->drive_id.'/root:/'.$folder;
         }
 
         return $parentReference;
@@ -358,9 +363,9 @@ class OneDriveClient
     private function getFolderUrl($folder)
     {
         if ($folder == '') {
-            $url = 'drive/root/';
+            $url = 'drives/'.$this->drive_id.'/root/children';
         } else {
-            $url = $this->getPathUnderRootDrive($folder).':/';
+            $url = $this->getPathUnderRootDrive($folder);
         }
 
         return $url;
@@ -373,7 +378,7 @@ class OneDriveClient
      */
     private function getPathUnderRootDrive($path)
     {
-        return 'drive/root:/'.$path;
+        return 'drives/'.$this->drive_id.'/root:/'.$path.':/children';
     }
 
     /**
