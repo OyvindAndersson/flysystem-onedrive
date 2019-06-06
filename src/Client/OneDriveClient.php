@@ -225,12 +225,13 @@ class OneDriveClient
         $pathinfo = pathinfo($path);
 
         $parentDir = ($pathinfo['dirname'] != '.') ? $pathinfo['dirname'] : '';
-        $url = self::BASE_URI.$this->getFolderUrl($parentDir).'children';
+        $url = self::BASE_URI.$this->getFolderUrl($parentDir);
 
         $folder = new Folder();
         $folder->name = $pathinfo['basename'];
+        $folder->conflictBehavior = 'rename';
 
-        return $this->getResponse('POST', $url, json_encode($folder), ['Content-Type' => 'application/json']);
+        return $this->getResponse('POST', $url, json_encode( $folder ), ['Content-Type' => 'application/json']);
     }
 
     /**
