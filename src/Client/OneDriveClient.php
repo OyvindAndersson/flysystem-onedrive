@@ -108,8 +108,35 @@ class OneDriveClient
     public function getMetadata($path)
     {
         $url = self::BASE_URI.$this->getPathUnderRootDrive($path);
-
+ 
         return $this->getResponse('GET', $url);
+
+        /*
+        $response = [];
+        $found = false;
+
+        while(!$found)
+        {
+            try
+            {
+                $response = $this->getResponse('GET', $url);
+
+                return $response;
+            }
+            catch(\GuzzleHttp\Exception\ClientException $e)
+            {
+                if( $e->getResponse()->getStatusCode() == '404')
+                {
+                    //wait some time until the next status check
+                    sleep(0.5);
+                }
+                else
+                {
+                    $found = true;
+                    dd($e);
+                }
+            }
+        }*/
     }
 
     /**
@@ -159,43 +186,63 @@ class OneDriveClient
      *
      * @throws OneDriveClientException
      *
+     * @link https://docs.microsoft.com/en-us/graph/long-running-actions-overview?tabs=cs
      * @link https://dev.onedrive.com/items/copy.htm
      */
     public function copy($oldPath, $newPath)
     {
-        $url = self::BASE_URI.$this->getPathUnderRootDrive($oldPath).':/action.copy';
-
-        $payload = $this->getNewFileLocationPayload($newPath);
+        $url = self::BASE_URI.$this->getPathUnderRootDrive($oldPath).':/copy';
+        
+        $payload = $this->getNewFileLocationPayload($newPath, $oldPath);
 
         $headers = [
             'Content-Type' => 'application/json',
             'Prefer' => 'respond-async',
         ];
+        
+        try
+        {
+            $response = $this->getResponse('POST', $url, json_encode($payload), $headers);
+            $asyncStatusLocation = $response->getHeader('Location');
 
-        $response = $this->getResponse('POST', $url, json_encode($payload), $headers);
-        $asyncStatusLocation = $response->getHeader('Location');
+            $completed = false;
+            while (!$completed) {
+                // The route for checking progress is public - no need for auth
+                $statusResponse = $this->getResponseUnsigned('GET', $asyncStatusLocation[0]);
+                $status = $statusResponse->getBody()->getContents();
+                $status = json_decode($status);
+                
 
-        //check for the status of an async operation
-        $completed = false;
-        while (!$completed) {
-            $statusResponse = $this->getResponse('GET', $asyncStatusLocation[0]);
+                if ($status->status == 'completed') 
+                {
+                    $completed = true;
+                } 
+                else 
+                {
+                    //echo $status->percentageComplete;
 
-            $statusCode = $statusResponse->getStatusCode();
-            if ($statusCode == '303' || $statusCode == '200') {
-                $completed = true;
-            } else {
-                $statusRaw = $statusResponse->getBody()->getContents();
-                $status = json_decode($statusRaw);
-                if ($status->status == 'failed') {
-                    throw new OneDriveClientException('API error when copying the file');
+                    if ($status->status == 'failed') {
+                        throw new OneDriveClientException('API error when copying the file');
+                    }
+
+                    //wait some time until the next status check
+                    sleep(0.2);
                 }
-
-                //wait some time until the next status check
-                sleep(0.5);
             }
+
+            return $this->getMetadata($newPath);
+            
+        }
+        catch(\GuzzleHttp\Exception\ClientException $e)
+        {
+            dd($e->getResponse()->getBody()->getContents(), $e);
+        }
+        catch(\GuzzleHttp\Exception\RequestException $e)
+        {
+            dd($e->getResponse()->getBody()->getContents(), $e);
         }
 
-        return $this->getMetadata($newPath);
+        
     }
 
     /**
@@ -225,7 +272,7 @@ class OneDriveClient
         $pathinfo = pathinfo($path);
 
         $parentDir = ($pathinfo['dirname'] != '.') ? $pathinfo['dirname'] : '';
-        $url = self::BASE_URI.$this->getFolderUrl($parentDir);
+        $url = self::BASE_URI.$this->getFolderUrl($parentDir).'children';
 
         $folder = new Folder();
         $folder->name = $pathinfo['basename'];
@@ -243,7 +290,7 @@ class OneDriveClient
      */
     public function listChildren($path)
     {
-        $url = self::BASE_URI.$this->getFolderUrl($path);
+        $url = self::BASE_URI.$this->getFolderUrl($path).'children';
         return $this->getResponse('GET', $url);
     }
 
@@ -326,7 +373,7 @@ class OneDriveClient
      *
      * @return array
      */
-    private function getNewFileLocationPayload($newPath)
+    private function getNewFileLocationPayload($newPath, $oldPath)
     {
         $pathinfo = pathinfo($newPath);
         $newParentDir = ($pathinfo['dirname'] != '.') ? $pathinfo['dirname'] : '';
@@ -334,7 +381,7 @@ class OneDriveClient
 
         $payload = [
             'name' => $newFilename,
-            'parentReference' => ['path' => $this->getParentReferenceFolder($newParentDir)],
+            'parentReference' => ['path' => $newParentDir],
         ];
 
         return $payload;
@@ -364,10 +411,16 @@ class OneDriveClient
     private function getFolderUrl($folder)
     {
         if ($folder == '') {
+            $url = 'drives/'.$this->drive_id.'/root/';
+        } else {
+            $url = $this->getPathUnderRootDrive($folder).':/';
+        }
+        /*
+        if ($folder == '') {
             $url = 'drives/'.$this->drive_id.'/root/children';
         } else {
-            $url = $this->getPathUnderRootDrive($folder);
-        }
+            $url = $this->getPathUnderRootDrive($folder).':/children';
+        }*/
 
         return $url;
     }
@@ -379,7 +432,7 @@ class OneDriveClient
      */
     private function getPathUnderRootDrive($path)
     {
-        return 'drives/'.$this->drive_id.'/root:/'.$path.':/children';
+        return 'drives/'.$this->drive_id.'/root:/'.$path;
     }
 
     /**
@@ -396,6 +449,23 @@ class OneDriveClient
         $uri = $path;
 
         $request = new Request($method, $uri, $allHeaders, $body);
+
+        return $this->guzzle->send($request);
+    }
+
+    /**
+     * @param string $method
+     * @param string $path
+     * @param string $body
+     * @param array  $headers
+     *
+     * @return \Psr\Http\Message\ResponseInterface
+     */
+    private function getResponseUnsigned($method, $path, $body = null, $headers = [])
+    {
+        $uri = $path;
+
+        $request = new Request($method, $uri, $headers, $body);
 
         return $this->guzzle->send($request);
     }
