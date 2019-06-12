@@ -272,13 +272,26 @@ class OneDriveClient
         $pathinfo = pathinfo($path);
 
         $parentDir = ($pathinfo['dirname'] != '.') ? $pathinfo['dirname'] : '';
-        $url = self::BASE_URI.$this->getFolderUrl($parentDir).'children';
+        $url = self::BASE_URI.$this->getFolderUrl($path, true);//.'children';
+        
+        $folder = new Folder();
+        $folder->conflictBehavior = 'rename';
 
+        return $this->getResponse('PATCH', $url, json_encode( $folder ), ['Content-Type' => 'application/json']);
+        
+
+        /*
+        $pathinfo = pathinfo($path);
+
+        $parentDir = ($pathinfo['dirname'] != '.') ? $pathinfo['dirname'] : '';
+        $url = self::BASE_URI.$this->getFolderUrl($parentDir).'children';
+        
         $folder = new Folder();
         $folder->name = $pathinfo['basename'];
         $folder->conflictBehavior = 'rename';
 
         return $this->getResponse('POST', $url, json_encode( $folder ), ['Content-Type' => 'application/json']);
+        */
     }
 
     /**
@@ -408,11 +421,18 @@ class OneDriveClient
      *
      * @return string
      */
-    private function getFolderUrl($folder)
+    private function getFolderUrl($folder, $ignoreResourceUri = false)
     {
-        if ($folder == '') {
+        if ($folder == '') 
+        {
             $url = 'drives/'.$this->drive_id.'/root/';
-        } else {
+        } 
+        else if($ignoreResourceUri)
+        {
+            $url = $this->getPathUnderRootDrive($folder);
+        }
+        else 
+        {
             $url = $this->getPathUnderRootDrive($folder).':/';
         }
         /*
